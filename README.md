@@ -4,8 +4,29 @@ A small YAML format for describing timed text/emoji overlays (with fades, shadow
 soft gradient background) to be composited onto a video — built for YouTube Shorts made
 from static sheet-music scores with a moving playhead.
 
-The DSL is a plain data file. A separate tool (not included here) parses it and generates
-an `ffmpeg` `filter_complex` to render the final video.
+The DSL is a plain data file. `overlay_renderer.py` parses it, generates an `ffmpeg`
+`filter_complex`, and runs FFmpeg to render the final video.
+
+## Rendering
+
+Install the Python dependency and make sure `ffmpeg` is available on `PATH`:
+
+```powershell
+python -m pip install -r requirements.txt
+python overlay_renderer.py overlays.yaml
+```
+
+Paths in `video` and `output` are resolved relative to the YAML file. Use
+`--dry-run` to print the generated FFmpeg command without rendering:
+
+```powershell
+python overlay_renderer.py overlays.yaml --dry-run
+```
+
+The renderer supports the documented canvas fitting modes, deep-merged defaults,
+timed text and emoji layers, position expressions, fades, outlines, shadows, and
+solid/soft-panel backgrounds. Emoji rendering depends on the fonts available to
+the local FFmpeg build; a font file can be supplied in `style.font` when needed.
 
 ## Quick example
 
