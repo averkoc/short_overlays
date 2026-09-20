@@ -222,7 +222,10 @@ def build_filter_graph(document: dict[str, Any]) -> str:
         emoji_gap = max(size // 4, 4)
         emoji_font = str(EMOJI_FONT_WINDOWS) if EMOJI_FONT_WINDOWS.is_file() else "Segoe UI Emoji"
 
-        text_w, text_h = measure_text(font, bold, italic, size, text)
+        text_lines = text.splitlines() or [""]
+        line_metrics = [measure_text(font, bold, italic, size, line) for line in text_lines]
+        text_w = max(width for width, _ in line_metrics)
+        text_h = sum(height for _, height in line_metrics)
         if emoji:
             emoji_w, emoji_h = measure_text(emoji_font, False, False, size, emoji)
             total_w, total_h = text_w + emoji_gap + emoji_w, max(text_h, emoji_h)
@@ -250,7 +253,9 @@ def build_filter_graph(document: dict[str, Any]) -> str:
                 if total_w > available_w:
                     scale = available_w / total_w
                     size = max(int(size * scale), 6)
-                    text_w, text_h = measure_text(font, bold, italic, size, text)
+                    line_metrics = [measure_text(font, bold, italic, size, line) for line in text_lines]
+                    text_w = max(width for width, _ in line_metrics)
+                    text_h = sum(height for _, height in line_metrics)
                     if emoji:
                         emoji_w, emoji_h = measure_text(emoji_font, False, False, size, emoji)
                         total_w, total_h = text_w + emoji_gap + emoji_w, max(text_h, emoji_h)
@@ -311,10 +316,16 @@ def build_filter_graph(document: dict[str, Any]) -> str:
                 f"shadowx={int(number(shadow.get('offset_x', 2), 'shadow.offset_x'))}",
                 f"shadowy={int(number(shadow.get('offset_y', 2), 'shadow.offset_y'))}",
             ])
-        escaped_text = ffmpeg_escape(text.replace("\n", "\\n"))
-        next_label = f"v{index + 1}"
-        graph.append(f"[{current}]drawtext=text='{escaped_text}':" + ":".join(options) + f"[{next_label}]")
-        current = next_label
+        line_y = text_y
+        for line_index, (line, (line_w, line_h)) in enumerate(zip(text_lines, line_metrics)):
+            line_options = options.copy()
+            line_options[line_options.index(f"x={text_x:g}")] = f"x={text_x + (text_w - line_w) / 2:g}"
+            line_options[line_options.index(f"y={text_y:g}")] = f"y={line_y:g}"
+            escaped_line = ffmpeg_escape(line)
+            next_label = f"v{index + 1}_{line_index}"
+            graph.append(f"[{current}]drawtext=text='{escaped_line}':" + ":".join(line_options) + f"[{next_label}]")
+            current = next_label
+            line_y += line_h
 
         if emoji:
             emoji_options = [

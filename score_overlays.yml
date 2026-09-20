@@ -1,0 +1,70 @@
+video: pelimanni.mp4
+output: out.mp4
+
+canvas:
+  width: 1080
+  height: 1920
+  fit: letterbox_blur
+
+defaults:
+  position:
+    x: center
+    y: 0.4
+  fade_in: 0.3
+  fade_out: 0.3
+  style:
+    font: Arial
+    size: 48
+    color: "#18181b"
+    bold: true
+    italic: false
+    outline:
+      color: "#fef3c7"
+      width: 1
+    shadow:
+      color: "#000000"
+      opacity: 0.15
+      offset_x: 1
+      offset_y: 2
+      blur: 4
+    background:
+      style: gradient_fade
+      type: linear             # Options: 'linear' (top-to-bottom) or 'radial' (center-out)
+      color: "#fef3c7"
+      opacity_start: 0.95      # Center/Top density
+      opacity_end: 0.0         # Fades out smoothly at the edges
+      sizing: fixed
+      width: 800
+      height: 260
+      feather: 48              # Increased feathering distance for a wider gradient slope
+
+overlays:
+  - text: |
+      This is very big text and
+      continues to second row
+    emoji: ""
+    start: 2.0
+    end: 8.5
+
+  - text: "Second overlay"
+    start: 13.0
+    end: 18.0
+
+  - text: "Third overlay"
+    start: 20.5
+    end: 22.0
+    style:
+      color: "#451a03"
+      outline:
+        color: "#fef3c7"
+        width: 1
+      background:
+        style: gradient_fade
+        type: linear
+        color: "#fde68a"
+        opacity_start: 0.95
+        opacity_end: 0.0
+        sizing: fixed
+        width: 800
+        height: 260
+        feather: 40

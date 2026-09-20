@@ -1,0 +1,72 @@
+video: pelimanni.mp4
+output: out.mp4
+
+canvas:
+  width: 1080
+  height: 1920
+  fit: letterbox_blur
+
+# Preset 1: Music Score Overlay (Warm Parchment)
+# Best for sheet music & playhead tracking — soft, non-disruptive, highly readable
+defaults:
+  position:
+    x: center
+    y: 0.4
+  fade_in: 0.3
+  fade_out: 0.3
+  style:
+    font: Arial
+    size: 48
+    color: "#18181b"          # Warm off-black ink
+    bold: true
+    italic: false
+    outline:
+      color: "#fef3c7"        # Soft cream edge halo
+      width: 1
+    shadow:
+      color: "#000000"
+      opacity: 0.15
+      offset_x: 1
+      offset_y: 2
+      blur: 4
+    background:
+      style: gradient_fade
+      color: "#fef3c7"        # Cream parchment background
+      opacity: 0.92
+      sizing: fixed
+      width: 800
+      height: 260
+      feather: 28             # Smooth alpha-feather for tracking playheads underneath
+
+overlays:
+  # Score Overlay Example
+  - text: |
+      This is very big text and
+      continues to second row
+    start: 2.0
+    end: 8.5
+
+  # Preset 2: Nature Background Overlay (Deep Slate / Dark Mode)
+  # Best for outdoor/scenic videos — cuts through foliage, water reflections, and bright skies
+  - text: "Nature video overlay example"
+    start: 10.0
+    end: 15.0
+    style:
+      color: "#f8fafc"        # Soft ice-white text
+      outline:
+        color: "#0f172a"      # Dark outline for separation against bright backgrounds
+        width: 1
+      shadow:
+        color: "#000000"
+        opacity: 0.35         # Slightly stronger shadow to lift off busy textures
+        offset_x: 2
+        offset_y: 2
+        blur: 6
+      background:
+        style: gradient_fade
+        color: "#0f172a"      # Deep slate panel
+        opacity: 0.88         # Fades out naturally over video movement
+        sizing: fixed
+        width: 800
+        height: 260
+        feather: 32           # Wide feathering so the box blends into the scene

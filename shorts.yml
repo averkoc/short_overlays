@@ -32,8 +32,10 @@ defaults:
       feather: 24
 
 overlays:
-  - text: "A happy accident!"
-    emoji: "🎻"
+  - text: |
+      This is very big text and
+      continues to second row
+    emoji: ""
     start: 2.0
     end: 8.5
 
