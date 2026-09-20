@@ -1,0 +1,48 @@
+
+video: pelimanni.mp4
+output: out.mp4
+
+canvas:
+  width: 1080
+  height: 1920
+  fit: letterbox_blur
+
+defaults:
+  position: { x: 0.3, y: 0.2 }
+  fade_in: 0.3
+  fade_out: 0.3
+  style:
+    font: "Arial"
+    size: 48
+    color: "#22c55e"
+    bold: true
+    shadow:
+      color: "#000000"
+      opacity: 0.9
+      offset_x: 2
+      offset_y: 2
+      blur: 3
+    background:
+      style: gradient_fade
+      color: "#000000"
+      opacity: 0.6
+      sizing: fixed
+      width: 800
+      height: 260
+      feather: 24
+
+overlays:
+  - text: "A happy accident!"
+    emoji: "🎻"
+    start: 2.0
+    end: 8.5
+
+  - text: "Nice tempo shift"
+    start: 13.0
+    end: 18.0
+
+  - text: "Rushing a bit here"
+    start: 20.5
+    end: 22.0
+    style:
+      color: "#f97316"

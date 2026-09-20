@@ -93,21 +93,64 @@ def ffmpeg_color(value: str, opacity: float = 1.0) -> str:
     return f"0x{value[1:]}@{opacity:g}"
 
 
-def font_option(font: str) -> str:
+WINDOWS_FONT_FILES: dict[str, dict[tuple[bool, bool], str]] = {
+    "arial": {
+        (False, False): "arial.ttf",
+        (True, False): "arialbd.ttf",
+        (False, True): "ariali.ttf",
+        (True, True): "arialbi.ttf",
+    },
+    "calibri": {
+        (False, False): "calibri.ttf",
+        (True, False): "calibrib.ttf",
+        (False, True): "calibrii.ttf",
+        (True, True): "calibriz.ttf",
+    },
+    "segoe ui": {
+        (False, False): "segoeui.ttf",
+        (True, False): "segoeuib.ttf",
+        (False, True): "segoeuii.ttf",
+        (True, True): "segoeuiz.ttf",
+    },
+}
+
+
+EMOJI_FONT_WINDOWS = Path("C:/Windows/Fonts/seguiemj.ttf")
+
+
+def resolve_font_file(font: str, bold: bool = False, italic: bool = False) -> Path | None:
     font_path = Path(font)
     if font_path.is_file():
-        return f"fontfile='{ffmpeg_escape(str(font_path.resolve()))}'"
+        return font_path.resolve()
     if sys.platform == "win32":
-        windows_font = Path("C:/Windows/Fonts") / {
-            "arial": "arial.ttf",
-            "arial bold": "arialbd.ttf",
-            "arial italic": "ariali.ttf",
-            "calibri": "calibri.ttf",
-            "segoe ui": "segoeui.ttf",
-        }.get(font.casefold(), "")
-        if windows_font.is_file():
-            return f"fontfile='{ffmpeg_escape(str(windows_font))}'"
-    return f"font='{ffmpeg_escape(font)}'"
+        variants = WINDOWS_FONT_FILES.get(font.casefold())
+        if variants:
+            windows_font = Path("C:/Windows/Fonts") / variants.get((bold, italic), variants[(False, False)])
+            if windows_font.is_file():
+                return windows_font
+    return None
+
+
+def font_option(font: str, bold: bool = False, italic: bool = False) -> str:
+    resolved = resolve_font_file(font, bold, italic)
+    if resolved:
+        return f"fontfile='{ffmpeg_escape(str(resolved))}'"
+    # fontconfig-style pattern lets drawtext resolve style without a font file
+    style = " ".join(part for part in ("Bold" if bold else "", "Italic" if italic else "") if part)
+    pattern = f"{font}:style={style}" if style else font
+    return f"font='{ffmpeg_escape(pattern)}'"
+
+
+def measure_text(font: str, bold: bool, italic: bool, size: int, text: str) -> tuple[int, int]:
+    """Approximate rendered pixel size of text, used to size/position layers consistently."""
+    resolved = resolve_font_file(font, bold, italic)
+    try:
+        from PIL import ImageFont
+        pil_font = ImageFont.truetype(str(resolved) if resolved else font, size)
+        left, top, right, bottom = pil_font.getbbox(text)
+        return max(right - left, 1), max(bottom - top, 1)
+    except Exception:
+        return max(int(size * 0.6 * len(text)), 1), int(size * 1.2)
 
 
 def alpha_expression(start: float, end: float, fade_in: float, fade_out: float) -> str:
@@ -119,21 +162,21 @@ def alpha_expression(start: float, end: float, fade_in: float, fade_out: float) 
     return expression
 
 
-def position_expression(value: Any, axis: str, text_dimension: str, canvas_dimension: str) -> str:
+def numeric_position(value: Any, axis: str, dimension: float, canvas_dimension: float) -> float:
     if value in ("center", "middle"):
-        return f"({canvas_dimension}-{text_dimension})/2"
+        return (canvas_dimension - dimension) / 2
     if axis == "x" and value == "left":
-        return "0"
+        return 0.0
     if axis == "x" and value == "right":
-        return f"{canvas_dimension}-{text_dimension}"
+        return canvas_dimension - dimension
     if axis == "y" and value == "top":
-        return "0"
+        return 0.0
     if axis == "y" and value == "bottom":
-        return f"{canvas_dimension}-{text_dimension}"
+        return canvas_dimension - dimension
     fraction = number(value, f"position.{axis}")
     if not 0 <= fraction <= 1:
         raise OverlayConfigError(f"position.{axis} must be between 0 and 1")
-    return f"{fraction:g}*{canvas_dimension}-{text_dimension}/2"
+    return fraction * canvas_dimension - dimension / 2
 
 
 def build_canvas_filters(canvas: dict[str, Any]) -> tuple[list[str], str]:
@@ -169,37 +212,27 @@ def build_filter_graph(document: dict[str, Any]) -> str:
         fade_out = number(overlay.get("fade_out", 0), f"overlays[{index}].fade_out", 0)
         if fade_in + fade_out > end - start:
             raise OverlayConfigError(f"overlays[{index}] fade durations exceed its duration")
+
+        font = str(style.get("font", "Arial"))
+        bold = bool(style.get("bold"))
+        italic = bool(style.get("italic"))
+        size = int(number(style.get("size", 48), f"overlays[{index}].style.size", 1))
         text = overlay["text"]
-        if overlay.get("emoji"):
-            text += " " + str(overlay["emoji"])
-        options = [
-            font_option(str(style.get("font", "Arial"))),
-            f"fontsize={int(number(style.get('size', 48), f'overlays[{index}].style.size', 1))}",
-            f"fontcolor={ffmpeg_color(color(style.get('color', '#ffffff'), f'overlays[{index}].style.color'))}",
-            f"x={position_expression(position.get('x', 'center'), 'x', 'text_w', 'w')}",
-            f"y={position_expression(position.get('y', 'center'), 'y', 'text_h', 'h')}",
-            f"alpha='{alpha_expression(start, end, fade_in, fade_out)}'",
-            f"enable='between(t,{start:g},{end:g})'",
-        ]
-        if style.get("bold"):
-            options.append("fontvariant=bold")
-        if style.get("italic"):
-            options.append("fontvariant=italic")
-        outline = require_mapping(style.get("outline", {}), f"overlays[{index}].style.outline")
-        outline_width = int(number(outline.get("width", 0), "outline.width", 0))
-        if outline_width:
-            options.extend([f"borderw={outline_width}", f"bordercolor={ffmpeg_color(color(outline.get('color', '#000000'), 'outline.color'))}"])
-        shadow = require_mapping(style.get("shadow", {}), f"overlays[{index}].style.shadow")
-        if shadow:
-            opacity = number(shadow.get("opacity", 0.5), "shadow.opacity")
-            if not 0 <= opacity <= 1:
-                raise OverlayConfigError("shadow.opacity must be between 0 and 1")
-            options.extend([
-                f"shadowcolor={ffmpeg_color(color(shadow.get('color', '#000000'), 'shadow.color'), opacity)}",
-                f"shadowx={int(number(shadow.get('offset_x', 2), 'shadow.offset_x'))}",
-                f"shadowy={int(number(shadow.get('offset_y', 2), 'shadow.offset_y'))}",
-            ])
+        emoji = str(overlay["emoji"]) if overlay.get("emoji") else None
+        emoji_gap = max(size // 4, 4)
+        emoji_font = str(EMOJI_FONT_WINDOWS) if EMOJI_FONT_WINDOWS.is_file() else "Segoe UI Emoji"
+
+        text_w, text_h = measure_text(font, bold, italic, size, text)
+        if emoji:
+            emoji_w, emoji_h = measure_text(emoji_font, False, False, size, emoji)
+            total_w, total_h = text_w + emoji_gap + emoji_w, max(text_h, emoji_h)
+        else:
+            emoji_w = emoji_h = 0
+            total_w, total_h = text_w, text_h
+
         background = require_mapping(style.get("background", {}), f"overlays[{index}].style.background")
+        panel_w = panel_h = feather = 0
+        panel_color = ""
         if background and background.get("style", "none") != "none":
             background_style = background.get("style", "solid")
             if background_style not in {"solid", "gradient_fade"}:
@@ -207,21 +240,99 @@ def build_filter_graph(document: dict[str, Any]) -> str:
             opacity = number(background.get("opacity", 0.5), "background.opacity")
             if not 0 <= opacity <= 1:
                 raise OverlayConfigError("background.opacity must be between 0 and 1")
-            if background.get("sizing", "auto") == "fixed":
-                options.extend([
-                    "box=1",
-                    f"boxw={int(number(background.get('width'), 'background.width', 1))}",
-                    f"boxh={int(number(background.get('height'), 'background.height', 1))}",
-                ])
+            feather = int(number(background.get("feather", 24 if background_style == "gradient_fade" else 0), "background.feather", 0))
+            sizing = background.get("sizing", "auto")
+            if sizing == "fixed":
+                panel_w = int(number(background.get("width"), "background.width", 1))
+                panel_h = int(number(background.get("height"), "background.height", 1))
+                margin = 12
+                available_w = max(panel_w - 2 * margin, 1)
+                if total_w > available_w:
+                    scale = available_w / total_w
+                    size = max(int(size * scale), 6)
+                    text_w, text_h = measure_text(font, bold, italic, size, text)
+                    if emoji:
+                        emoji_w, emoji_h = measure_text(emoji_font, False, False, size, emoji)
+                        total_w, total_h = text_w + emoji_gap + emoji_w, max(text_h, emoji_h)
+                    else:
+                        total_w, total_h = text_w, text_h
+            elif sizing == "auto":
+                padding = int(number(background.get("padding", 16), "background.padding", 0))
+                panel_w, panel_h = total_w + 2 * padding, total_h + 2 * padding
             else:
-                options.extend(["box=1", f"boxborderw={int(number(background.get('padding', 0), 'background.padding', 0))}"])
-            options.append(f"boxcolor={ffmpeg_color(color(background.get('color', '#000000'), 'background.color'), opacity)}")
+                raise OverlayConfigError(f"unsupported background sizing: {sizing}")
+            panel_color = ffmpeg_color(color(background.get("color", "#000000"), "background.color"), opacity)
+
+        anchor_x = numeric_position(position.get("x", "center"), "x", total_w, canvas["width"])
+        anchor_y = numeric_position(position.get("y", "center"), "y", total_h, canvas["height"])
+        text_x, text_y = anchor_x, anchor_y + (total_h - text_h) / 2
+        emoji_x, emoji_y = anchor_x + text_w + emoji_gap, anchor_y + (total_h - emoji_h) / 2
+
+        if panel_w and panel_h:
+            panel_x = numeric_position(position.get("x", "center"), "x", panel_w, canvas["width"])
+            panel_y = numeric_position(position.get("y", "center"), "y", panel_h, canvas["height"])
+            source_w, source_h = panel_w + 2 * feather, panel_h + 2 * feather
+            panel_src, box_label = f"bgsrc{index}", f"bgbox{index}"
+            blur_label = f"bgblur{index}" if feather > 0 else box_label
+            next_bg = f"vbg{index}"
+            fade_parts = []
+            if fade_in > 0:
+                fade_parts.append(f"fade=t=in:st={start:g}:d={fade_in:g}:alpha=1")
+            if fade_out > 0:
+                fade_parts.append(f"fade=t=out:st={end - fade_out:g}:d={fade_out:g}:alpha=1")
+            fade_chain = "".join(f",{part}" for part in fade_parts)
+            graph.append(f"color=size={source_w}x{source_h}:color=black@0.0:duration={end + 0.5:.3f},format=rgba[{panel_src}]")
+            graph.append(f"[{panel_src}]drawbox=x={feather}:y={feather}:w={panel_w}:h={panel_h}:color={panel_color}:t=fill:replace=1{fade_chain}[{box_label}]")
+            if feather > 0:
+                graph.append(f"[{box_label}]boxblur=luma_radius={feather}:luma_power=1:chroma_radius={feather}:chroma_power=1:alpha_radius={feather}:alpha_power=1[{blur_label}]")
+            graph.append(f"[{current}][{blur_label}]overlay=x={panel_x - feather:g}:y={panel_y - feather:g}:enable='between(t,{start:g},{end:g})'[{next_bg}]")
+            current = next_bg
+
+        options = [
+            font_option(font, bold, italic),
+            f"fontsize={size}",
+            f"fontcolor={ffmpeg_color(color(style.get('color', '#ffffff'), f'overlays[{index}].style.color'))}",
+            f"x={text_x:g}",
+            f"y={text_y:g}",
+            f"alpha='{alpha_expression(start, end, fade_in, fade_out)}'",
+            f"enable='between(t,{start:g},{end:g})'",
+        ]
+        outline = require_mapping(style.get("outline", {}), f"overlays[{index}].style.outline")
+        outline_width = int(number(outline.get("width", 0), "outline.width", 0))
+        if outline_width:
+            options.extend([f"borderw={outline_width}", f"bordercolor={ffmpeg_color(color(outline.get('color', '#000000'), 'outline.color'))}"])
+        shadow = require_mapping(style.get("shadow", {}), f"overlays[{index}].style.shadow")
+        if shadow:
+            shadow_opacity = number(shadow.get("opacity", 0.5), "shadow.opacity")
+            if not 0 <= shadow_opacity <= 1:
+                raise OverlayConfigError("shadow.opacity must be between 0 and 1")
+            options.extend([
+                f"shadowcolor={ffmpeg_color(color(shadow.get('color', '#000000'), 'shadow.color'), shadow_opacity)}",
+                f"shadowx={int(number(shadow.get('offset_x', 2), 'shadow.offset_x'))}",
+                f"shadowy={int(number(shadow.get('offset_y', 2), 'shadow.offset_y'))}",
+            ])
         escaped_text = ffmpeg_escape(text.replace("\n", "\\n"))
         next_label = f"v{index + 1}"
         graph.append(f"[{current}]drawtext=text='{escaped_text}':" + ":".join(options) + f"[{next_label}]")
         current = next_label
+
+        if emoji:
+            emoji_options = [
+                f"fontfile='{ffmpeg_escape(emoji_font)}'" if Path(emoji_font).is_file() else f"font='{ffmpeg_escape(emoji_font)}'",
+                f"fontsize={size}",
+                "fontcolor=white",
+                f"x={emoji_x:g}",
+                f"y={emoji_y:g}",
+                f"alpha='{alpha_expression(start, end, fade_in, fade_out)}'",
+                f"enable='between(t,{start:g},{end:g})'",
+            ]
+            escaped_emoji = ffmpeg_escape(emoji)
+            emoji_label = f"vemoji{index}"
+            graph.append(f"[{current}]drawtext=text='{escaped_emoji}':" + ":".join(emoji_options) + f"[{emoji_label}]")
+            current = emoji_label
     graph.append(f"[{current}]format=yuv420p[vout]")
     return ";".join(graph)
+
 
 
 def render(spec_path: Path, dry_run: bool = False) -> None:
