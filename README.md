@@ -156,6 +156,7 @@ the overlay.
 | `color`      | string | Hex color, e.g. `"#22c55e"`. |
 | `bold`       | bool   | Bold text. |
 | `italic`     | bool   | Italic text. |
+| `align`      | `left` \| `center` \| `right` | Aligns lines within the text block; does not change the block's `position.x`. Defaults to `center`. |
 | `outline`    | object | See below. Set `width: 0` for no outline. |
 | `shadow`     | object | See below. Omit for no shadow. |
 | `background` | object | See below. Omit or set `style: none` for no background. |

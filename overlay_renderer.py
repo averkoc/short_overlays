@@ -153,6 +153,18 @@ def measure_text(font: str, bold: bool, italic: bool, size: int, text: str) -> t
         return max(int(size * 0.6 * len(text)), 1), int(size * 1.2)
 
 
+def measure_line_height(font: str, bold: bool, italic: bool, size: int) -> int:
+    """Return a stable line advance based on the font's ascent and descent."""
+    resolved = resolve_font_file(font, bold, italic)
+    try:
+        from PIL import ImageFont
+        pil_font = ImageFont.truetype(str(resolved) if resolved else font, size)
+        ascent, descent = pil_font.getmetrics()
+        return max(ascent + descent, 1)
+    except Exception:
+        return max(int(size * 1.2), 1)
+
+
 def alpha_expression(start: float, end: float, fade_in: float, fade_out: float) -> str:
     expression = "1"
     if fade_in > 0:
@@ -216,6 +228,9 @@ def build_filter_graph(document: dict[str, Any]) -> str:
         font = str(style.get("font", "Arial"))
         bold = bool(style.get("bold"))
         italic = bool(style.get("italic"))
+        text_align = style.get("align", "center")
+        if not isinstance(text_align, str) or text_align not in {"left", "center", "right"}:
+            raise OverlayConfigError(f"overlays[{index}].style.align must be left, center, or right")
         size = int(number(style.get("size", 48), f"overlays[{index}].style.size", 1))
         text = overlay["text"]
         emoji = str(overlay["emoji"]) if overlay.get("emoji") else None
@@ -224,8 +239,9 @@ def build_filter_graph(document: dict[str, Any]) -> str:
 
         text_lines = text.splitlines() or [""]
         line_metrics = [measure_text(font, bold, italic, size, line) for line in text_lines]
+        line_height = measure_line_height(font, bold, italic, size)
         text_w = max(width for width, _ in line_metrics)
-        text_h = sum(height for _, height in line_metrics)
+        text_h = line_height * len(text_lines)
         if emoji:
             emoji_w, emoji_h = measure_text(emoji_font, False, False, size, emoji)
             total_w, total_h = text_w + emoji_gap + emoji_w, max(text_h, emoji_h)
@@ -254,8 +270,9 @@ def build_filter_graph(document: dict[str, Any]) -> str:
                     scale = available_w / total_w
                     size = max(int(size * scale), 6)
                     line_metrics = [measure_text(font, bold, italic, size, line) for line in text_lines]
+                    line_height = measure_line_height(font, bold, italic, size)
                     text_w = max(width for width, _ in line_metrics)
-                    text_h = sum(height for _, height in line_metrics)
+                    text_h = line_height * len(text_lines)
                     if emoji:
                         emoji_w, emoji_h = measure_text(emoji_font, False, False, size, emoji)
                         total_w, total_h = text_w + emoji_gap + emoji_w, max(text_h, emoji_h)
@@ -319,13 +336,19 @@ def build_filter_graph(document: dict[str, Any]) -> str:
         line_y = text_y
         for line_index, (line, (line_w, line_h)) in enumerate(zip(text_lines, line_metrics)):
             line_options = options.copy()
-            line_options[line_options.index(f"x={text_x:g}")] = f"x={text_x + (text_w - line_w) / 2:g}"
+            if text_align == "left":
+                line_x = text_x
+            elif text_align == "right":
+                line_x = text_x + text_w - line_w
+            else:
+                line_x = text_x + (text_w - line_w) / 2
+            line_options[line_options.index(f"x={text_x:g}")] = f"x={line_x:g}"
             line_options[line_options.index(f"y={text_y:g}")] = f"y={line_y:g}"
             escaped_line = ffmpeg_escape(line)
             next_label = f"v{index + 1}_{line_index}"
             graph.append(f"[{current}]drawtext=text='{escaped_line}':" + ":".join(line_options) + f"[{next_label}]")
             current = next_label
-            line_y += line_h
+            line_y += line_height
 
         if emoji:
             emoji_options = [
